@@ -1,7 +1,7 @@
 const express = require('express');
 const dotenv = require('dotenv');
 dotenv.config();
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const cors = require('cors');
 const app = express();
 const port = process.env.PORT || 5000;
@@ -32,7 +32,9 @@ async function run() {
         const db = client.db('legaleasedb');
         const userCollection = db.collection('user');
         const lawyerCollection = db.collection('lawyer');
-        const serviceCollection = db.collection('service');
+        const hiringReqCollection = db.collection('hiringReq');
+        const paymentCollection = db.collection('payment');
+        const commentCollection = db.collection('comment');
 
         // user role set on register
         app.patch('/users/role', async (req, res) => {
@@ -58,16 +60,33 @@ async function run() {
         });
 
         // lawyer api operation
+        app.post('/lawyers', async (req, res) => {
+            try {
+                const lawyerData = req.body;
+                if (!lawyerData.email) {
+                    return res.status(400).send({ message: "Email is required" });
+                }
+                const query = { email: lawyerData.email };
+                const update = { $set: lawyerData };
+                const result = await lawyerCollection.updateOne(query, update, { upsert: true });
+                res.status(200).send(result);
+            } catch (error) {
+                res.status(500).send({ message: "Error updating lawyer profile", error: error.message });
+            }
+        });
+
         app.get('/lawyers', async (req, res) => {
             try {
-                const { random, limit } = req.query;
+                const { random, limit, email } = req.query;
                 let lawyers;
 
                 if (random === 'true') {
                     const size = limit ? parseInt(limit) : 6;
                     lawyers = await lawyerCollection.aggregate([{ $sample: { size } }]).toArray();
                 } else {
-                    let query = lawyerCollection.find();
+                    let queryObj = {};
+                    if (email) queryObj.email = email;
+                    let query = lawyerCollection.find(queryObj);
                     if (limit) query = query.limit(parseInt(limit));
                     lawyers = await query.toArray();
                 }
@@ -86,10 +105,134 @@ async function run() {
                 res.status(500).send({ message: "Error getting lawyer", error: error.message });
             }
         })
+        app.patch('/lawyer/hiring/:id', async (req, res) => {
+            try {
+                const id = req.params.id;
+                const { status } = req.body;
+                const filter = { _id: new ObjectId(id) };
+                const updateDoc = {
+                    $set: { status }
+                };
+                const result = await hiringReqCollection.updateOne(filter, updateDoc);
+                res.send(result);
+            } catch (error) {
+                res.status(500).send({ message: "Error updating hiring status", error: error.message });
+            }
+        })
+        app.get('/lawyer/hiring', async (req, res) => {
+            try {
+                const { lawyerEmail } = req.query;
+                const query = { lawyerEmail };
+                const result = await hiringReqCollection.find(query).toArray();
+                res.send(result);
+            } catch (error) {
+                res.status(500).send({ message: "Error getting lawyer hiring requests", error: error.message });
+            }
+        })
 
         // user api operation
+        app.get('/user/hiring', async (req, res) => {
+            try {
+                const { userEmail } = req.query;
+                const query = { userEmail };
+                const result = await hiringReqCollection.find(query).toArray();
+                res.send(result);
+            } catch (error) {
+                res.status(500).send({ message: "Error getting user hiring requests", error: error.message });
+            }
+        })
+        app.post('/user/hiring', async (req, res) => {
+            const { userName, userEmail, lawyerName, lawyerEmail, fee, status, createdAt } = req.body;
+            const hiringData = {
+                userName,
+                userEmail,
+                lawyerName,
+                lawyerEmail,
+                fee,
+                status,
+                createdAt
+            }
+            // Only block new requests if there's currently an active (unpaid) request
+            const isHiringExist = await hiringReqCollection.findOne({ 
+                userEmail, 
+                lawyerEmail,
+                status: { $in: ['Pending', 'Accepted'] }
+            });
+            if (isHiringExist) {
+                return res.status(200).send({ message: `You already have an active ${isHiringExist.status.toLowerCase()} request for this lawyer.` });
+            }
+            const result = await hiringReqCollection.insertOne(hiringData);
+            res.send({ message: "Hiring request sent successfully", result });
+        })
+
+        // comment related api
+        app.post('/user/comment', async (req, res) => {
+            const { userEmail, lawyerEmail, comment, createdAt } = req.body;
+            const commentData = {
+                userEmail,
+                lawyerEmail,
+                comment,
+                createdAt
+            }
+            const result = await commentCollection.insertOne(commentData);
+            res.send({ message: "Comment sent successfully", result });
+        })
+        app.get('/user/comment', async (req, res) => {
+            try {
+                const { userEmail } = req.query;
+                const query = { userEmail };
+                const result = await commentCollection.find(query).toArray();
+                res.send(result);
+            } catch (error) {
+                res.status(500).send({ message: "Error getting user comments", error: error.message });
+            }
+        })
+        app.get('/lawyer/comment', async (req, res) => {
+            try {
+                const { lawyerEmail } = req.query;
+                const query = { lawyerEmail };
+                const result = await commentCollection.find(query).toArray();
+                res.send(result);
+            } catch (error) {
+                res.status(500).send({ message: "Error getting lawyer comments", error: error.message });
+            }
+        })
 
         // admin api operation
+
+        // stripe payment api
+        app.post('/payment', async (req, res) => {
+            const { lawyerEmail, userName, userEmail, fee, hiringReqId, transactionId } = req.body;
+
+            // Prevent duplicate payments for the same hiring request
+            if (hiringReqId) {
+                const isExist = await paymentCollection.findOne({ hiringReqId });
+                if (isExist) {
+                    return res.json({ msg: "Payment already processed!" });
+                }
+            }
+
+            await paymentCollection.insertOne({
+                lawyerEmail,
+                userEmail,
+                userName,
+                fee,
+                hiringReqId,
+                transactionId,
+                status: 'Paid',
+                createdAt: new Date(),
+            });
+
+            // Update the hiring request status
+            if (hiringReqId) {
+                await hiringReqCollection.updateOne(
+                    { _id: new ObjectId(hiringReqId) },
+                    { $set: { status: 'Paid' } }
+                );
+            }
+
+            res.send({ message: "Payment successful!" });
+        })
 
 
         // Send a ping to confirm a successful connection
