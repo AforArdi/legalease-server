@@ -75,21 +75,6 @@ async function run() {
             }
         });
 
-        app.post('/users', async (req, res)=>{
-            try{
-                const userData = req.body;
-                if(!userData.email){
-                    res.status(400).send({message: 'Email is required'})
-                }
-                const query = {email: userData.email};
-                const update = {$set: userData}
-                const result = await userCollection.updateOne(query, update, {upsert: true});
-                res.status(200).send(result);
-            } catch (error) {
-                res.status(500).send({ message: "Error updating user profile", error: error.message });
-            }
-        });
-
         app.get('/lawyers', async (req, res) => {
             try {
                 const { random, limit, email } = req.query;
@@ -146,6 +131,32 @@ async function run() {
         })
 
         // user api operation
+        app.get('/user', async (req, res) => {
+            try {
+                const { email } = req.query;
+                const query = { email };
+                const user = await userCollection.findOne(query);
+                res.send(user);
+            } catch (error) {
+                res.status(500).send({ message: "Error getting user profile", error: error.message });
+            }
+        })
+
+        app.post('/user', async (req, res) => {
+            try {
+                const userData = req.body;
+                if (!userData.email) {
+                    res.status(400).send({ message: 'Email is required' })
+                }
+                const query = { email: userData.email };
+                const update = { $set: userData }
+                const result = await userCollection.updateOne(query, update, { upsert: true });
+                res.status(200).send(result);
+            } catch (error) {
+                res.status(500).send({ message: "Error updating user profile", error: error.message });
+            }
+        });
+
         app.get('/user/hiring', async (req, res) => {
             try {
                 const { userEmail } = req.query;
@@ -168,8 +179,8 @@ async function run() {
                 createdAt
             }
             // Only block new requests if there's currently an active (unpaid) request
-            const isHiringExist = await hiringReqCollection.findOne({ 
-                userEmail, 
+            const isHiringExist = await hiringReqCollection.findOne({
+                userEmail,
                 lawyerEmail,
                 status: { $in: ['Pending', 'Accepted'] }
             });
@@ -182,10 +193,11 @@ async function run() {
 
         // comment related api
         app.post('/user/comment', async (req, res) => {
-            const { userEmail, lawyerEmail, comment, createdAt } = req.body;
+            const { userEmail, lawyerEmail, lawyerName, comment, createdAt } = req.body;
             const commentData = {
                 userEmail,
                 lawyerEmail,
+                lawyerName,
                 comment,
                 createdAt
             }
@@ -212,6 +224,25 @@ async function run() {
                 res.status(500).send({ message: "Error getting lawyer comments", error: error.message });
             }
         })
+        app.patch('/user/comment/:id', async (req, res) => {
+            try {
+                const id = req.params.id;
+                const { comment } = req.body;
+                await commentCollection.updateOne({ _id: new ObjectId(id) }, { $set: { comment } });
+                res.send({ message: "Comment updated successfully" });
+            } catch (error) {
+                res.status(500).send({ message: "Error updating comment", error: error.message });
+            }
+        })
+        app.delete('/user/comment/:id', async (req, res) => {
+            try {
+                const id = req.params.id;
+                await commentCollection.deleteOne({ _id: new ObjectId(id) });
+                res.send({ message: "Comment deleted successfully" });
+            } catch (error) {
+                res.status(500).send({ message: "Error deleting comment", error: error.message });
+            }
+        });
 
         // admin api operation
 
