@@ -245,6 +245,14 @@ async function run() {
         });
 
         // admin api operation
+        app.get('/admin/lawyers', async (req, res) => {
+            try {
+                const lawyers = await lawyerCollection.find().toArray();
+                res.send(lawyers);
+            } catch (error) {
+                res.status(500).send({ message: "Error getting all lawyers", error: error.message });
+            }
+        })
         app.get('/admin/users', async (req, res) => {
             try {
                 const users = await userCollection.find().toArray();
