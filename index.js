@@ -248,13 +248,7 @@ async function run() {
         app.get('/admin/users', async (req, res) => {
             try {
                 const users = await userCollection.find().toArray();
-                const lawyers = await lawyerCollection.find().toArray();
-
-                const normalizedUsers = users.map(user => ({ ...user, role: user.role || 'user' }));
-                const normalizedLawyers = lawyers.map(lawyer => ({ ...lawyer, role: 'lawyer' }));
-
-                const allUsers = [...normalizedUsers, ...normalizedLawyers];
-                res.send(allUsers);
+                res.send(users);
             } catch (error) {
                 res.status(500).send({ message: "Error getting all users", error: error.message });
             }
@@ -268,21 +262,33 @@ async function run() {
                     return res.status(400).send({ message: "Missing required fields" });
                 }
 
+                // 1. Always update the main auth record in userCollection
+                await userCollection.updateOne({ email }, { $set: { role: newRole } });
+
                 if (currentRole === 'user' && newRole === 'lawyer') {
+                    // 2. If promoted to lawyer, initialize their profile in lawyerCollection
                     const user = await userCollection.findOne({ email });
-                    if (!user) return res.status(404).send({ message: "User not found" });
-
-                    const { _id, ...userData } = user;
-                    userData.role = 'lawyer';
-                    await lawyerCollection.updateOne({ email }, { $set: userData }, { upsert: true });
-                    await userCollection.deleteOne({ email });
+                    if (user) {
+                        const defaultLawyerProfile = {
+                            email: user.email,
+                            name: user.name,
+                            image: user.image,
+                            createdAt: new Date().toISOString(),
+                            bio: "",
+                            category: "General",
+                            experience: "0 Years",
+                            fee: 0,
+                            status: "Available"
+                        };
+                        // Use $setOnInsert so we don't overwrite if they somehow already had a profile
+                        await lawyerCollection.updateOne(
+                            { email },
+                            { $setOnInsert: defaultLawyerProfile },
+                            { upsert: true }
+                        );
+                    }
                 } else if (currentRole === 'lawyer' && newRole === 'user') {
-                    const lawyer = await lawyerCollection.findOne({ email });
-                    if (!lawyer) return res.status(404).send({ message: "Lawyer not found" });
-
-                    const { _id, ...lawyerData } = lawyer;
-                    lawyerData.role = 'user';
-                    await userCollection.updateOne({ email }, { $set: lawyerData }, { upsert: true });
+                    // 3. If demoted to user, purge their lawyer profile to prevent lingering data
                     await lawyerCollection.deleteOne({ email });
                 } else {
                     return res.status(400).send({ message: "Invalid role transition" });
@@ -297,17 +303,23 @@ async function run() {
         app.delete('/admin/users/:email', async (req, res) => {
             try {
                 const email = req.params.email;
-                const { role } = req.query;
 
-                if (role === 'lawyer') {
-                    await lawyerCollection.deleteOne({ email });
-                } else {
-                    await userCollection.deleteOne({ email });
-                }
+                // Since userCollection is the master auth list, delete from both just to be absolutely safe
+                await userCollection.deleteOne({ email });
+                await lawyerCollection.deleteOne({ email });
 
                 res.send({ message: "User deleted successfully" });
             } catch (error) {
                 res.status(500).send({ message: "Error deleting user", error: error.message });
+            }
+        });
+
+        app.get('/admin/transactions', async (req, res) => {
+            try {
+                const transactions = await paymentCollection.find().toArray();
+                res.json(transactions);
+            } catch (error) {
+                res.status(500).send({ message: "Error fetching transactions", error: error.message });
             }
         });
 
