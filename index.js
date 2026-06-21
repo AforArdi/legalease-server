@@ -75,6 +75,21 @@ async function run() {
             }
         });
 
+        app.post('/users', async (req, res)=>{
+            try{
+                const userData = req.body;
+                if(!userData.email){
+                    res.status(400).send({message: 'Email is required'})
+                }
+                const query = {email: userData.email};
+                const update = {$set: userData}
+                const result = await userCollection.updateOne(query, update, {upsert: true});
+                res.status(200).send(result);
+            } catch (error) {
+                res.status(500).send({ message: "Error updating user profile", error: error.message });
+            }
+        });
+
         app.get('/lawyers', async (req, res) => {
             try {
                 const { random, limit, email } = req.query;
