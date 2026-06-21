@@ -245,6 +245,71 @@ async function run() {
         });
 
         // admin api operation
+        app.get('/admin/users', async (req, res) => {
+            try {
+                const users = await userCollection.find().toArray();
+                const lawyers = await lawyerCollection.find().toArray();
+
+                const normalizedUsers = users.map(user => ({ ...user, role: user.role || 'user' }));
+                const normalizedLawyers = lawyers.map(lawyer => ({ ...lawyer, role: 'lawyer' }));
+
+                const allUsers = [...normalizedUsers, ...normalizedLawyers];
+                res.send(allUsers);
+            } catch (error) {
+                res.status(500).send({ message: "Error getting all users", error: error.message });
+            }
+        });
+
+        app.patch('/admin/users/role', async (req, res) => {
+            try {
+                const { email, currentRole, newRole } = req.body;
+
+                if (!email || !currentRole || !newRole) {
+                    return res.status(400).send({ message: "Missing required fields" });
+                }
+
+                if (currentRole === 'user' && newRole === 'lawyer') {
+                    const user = await userCollection.findOne({ email });
+                    if (!user) return res.status(404).send({ message: "User not found" });
+
+                    const { _id, ...userData } = user;
+                    userData.role = 'lawyer';
+                    await lawyerCollection.updateOne({ email }, { $set: userData }, { upsert: true });
+                    await userCollection.deleteOne({ email });
+                } else if (currentRole === 'lawyer' && newRole === 'user') {
+                    const lawyer = await lawyerCollection.findOne({ email });
+                    if (!lawyer) return res.status(404).send({ message: "Lawyer not found" });
+
+                    const { _id, ...lawyerData } = lawyer;
+                    lawyerData.role = 'user';
+                    await userCollection.updateOne({ email }, { $set: lawyerData }, { upsert: true });
+                    await lawyerCollection.deleteOne({ email });
+                } else {
+                    return res.status(400).send({ message: "Invalid role transition" });
+                }
+
+                res.send({ message: "Role changed successfully" });
+            } catch (error) {
+                res.status(500).send({ message: "Error changing role", error: error.message });
+            }
+        });
+
+        app.delete('/admin/users/:email', async (req, res) => {
+            try {
+                const email = req.params.email;
+                const { role } = req.query;
+
+                if (role === 'lawyer') {
+                    await lawyerCollection.deleteOne({ email });
+                } else {
+                    await userCollection.deleteOne({ email });
+                }
+
+                res.send({ message: "User deleted successfully" });
+            } catch (error) {
+                res.status(500).send({ message: "Error deleting user", error: error.message });
+            }
+        });
 
         // stripe payment api
         app.post('/payment', async (req, res) => {
