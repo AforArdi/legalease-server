@@ -3,6 +3,7 @@ const dotenv = require('dotenv');
 dotenv.config();
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const cors = require('cors');
+const { createRemoteJWKSet, jwtVerify } = require('jose-cjs');
 const app = express();
 const port = process.env.PORT || 5000;
 
@@ -25,6 +26,40 @@ const client = new MongoClient(uri, {
     }
 });
 
+// JWT and Role verification middlewares
+const JWKS = createRemoteJWKSet(
+    new URL(`${process.env.CLIENT_URL}/api/auth/jwks`)
+)
+const verifyToken = async (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).send({ message: "Unauthorized" });
+    }
+    const token = authHeader.split(' ')[1];
+    try {
+        const { payload } = await jwtVerify(token, JWKS);
+        req.user = payload;
+        next();
+    } catch (error) {
+        res.status(401).send({ message: "Invalid token", error: error.message });
+    }
+}
+const verifyLawyer = async (req, res, next) => {
+    const user = req.user;
+    if (user.role !== 'lawyer') {
+        return res.status(403).send({ message: "Forbidden: Lawyers only" });
+    }
+    next();
+}
+const verifyAdmin = async (req, res, next) => {
+    const user = req.user;
+    if (user.role !== 'admin') {
+        return res.status(403).send({ message: "Forbidden: Admins only" });
+    }
+    next();
+}
+
+
 async function run() {
     try {
         // Connect the client to the server	(optional starting in v4.7)
@@ -37,7 +72,7 @@ async function run() {
         const commentCollection = db.collection('comment');
 
         // user role set on register
-        app.patch('/users/role', async (req, res) => {
+        app.patch('/users/role', verifyToken, async (req, res) => {
             try {
                 const { email, role } = req.body;
                 if (!email || !role) {
@@ -60,7 +95,7 @@ async function run() {
         });
 
         // lawyer api operation
-        app.post('/lawyers', async (req, res) => {
+        app.post('/lawyers', verifyToken, verifyLawyer, async (req, res) => {
             try {
                 const lawyerData = req.body;
                 if (!lawyerData.email) {
@@ -105,7 +140,7 @@ async function run() {
                 res.status(500).send({ message: "Error getting lawyer", error: error.message });
             }
         })
-        app.patch('/lawyer/hiring/:id', async (req, res) => {
+        app.patch('/lawyer/hiring/:id', verifyToken, verifyLawyer, async (req, res) => {
             try {
                 const id = req.params.id;
                 const { status } = req.body;
@@ -119,7 +154,7 @@ async function run() {
                 res.status(500).send({ message: "Error updating hiring status", error: error.message });
             }
         })
-        app.get('/lawyer/hiring', async (req, res) => {
+        app.get('/lawyer/hiring', verifyToken, verifyLawyer, async (req, res) => {
             try {
                 const { lawyerEmail } = req.query;
                 const query = { lawyerEmail };
@@ -131,7 +166,7 @@ async function run() {
         })
 
         // user api operation
-        app.get('/user', async (req, res) => {
+        app.get('/user', verifyToken, async (req, res) => {
             try {
                 const { email } = req.query;
                 const query = { email };
@@ -142,7 +177,7 @@ async function run() {
             }
         })
 
-        app.post('/user', async (req, res) => {
+        app.post('/user', verifyToken, async (req, res) => {
             try {
                 const userData = req.body;
                 if (!userData.email) {
@@ -157,7 +192,7 @@ async function run() {
             }
         });
 
-        app.get('/user/hiring', async (req, res) => {
+        app.get('/user/hiring', verifyToken, async (req, res) => {
             try {
                 const { userEmail } = req.query;
                 const query = { userEmail };
@@ -167,7 +202,7 @@ async function run() {
                 res.status(500).send({ message: "Error getting user hiring requests", error: error.message });
             }
         })
-        app.post('/user/hiring', async (req, res) => {
+        app.post('/user/hiring', verifyToken, async (req, res) => {
             const { userName, userEmail, lawyerName, lawyerEmail, fee, status, createdAt } = req.body;
             const hiringData = {
                 userName,
@@ -192,7 +227,7 @@ async function run() {
         })
 
         // comment related api
-        app.post('/user/comment', async (req, res) => {
+        app.post('/user/comment', verifyToken, async (req, res) => {
             const { userEmail, lawyerEmail, lawyerName, comment, createdAt } = req.body;
             const commentData = {
                 userEmail,
@@ -204,7 +239,7 @@ async function run() {
             const result = await commentCollection.insertOne(commentData);
             res.send({ message: "Comment sent successfully", result });
         })
-        app.get('/user/comment', async (req, res) => {
+        app.get('/user/comment', verifyToken, async (req, res) => {
             try {
                 const { userEmail } = req.query;
                 const query = { userEmail };
@@ -224,7 +259,7 @@ async function run() {
                 res.status(500).send({ message: "Error getting lawyer comments", error: error.message });
             }
         })
-        app.patch('/user/comment/:id', async (req, res) => {
+        app.patch('/user/comment/:id', verifyToken, async (req, res) => {
             try {
                 const id = req.params.id;
                 const { comment } = req.body;
@@ -234,7 +269,7 @@ async function run() {
                 res.status(500).send({ message: "Error updating comment", error: error.message });
             }
         })
-        app.delete('/user/comment/:id', async (req, res) => {
+        app.delete('/user/comment/:id', verifyToken, async (req, res) => {
             try {
                 const id = req.params.id;
                 await commentCollection.deleteOne({ _id: new ObjectId(id) });
@@ -245,7 +280,7 @@ async function run() {
         });
 
         // admin api operation
-        app.get('/admin/lawyers', async (req, res) => {
+        app.get('/admin/lawyers', verifyToken, verifyAdmin, async (req, res) => {
             try {
                 const lawyers = await lawyerCollection.find().toArray();
                 res.send(lawyers);
@@ -253,7 +288,7 @@ async function run() {
                 res.status(500).send({ message: "Error getting all lawyers", error: error.message });
             }
         })
-        app.get('/admin/users', async (req, res) => {
+        app.get('/admin/users', verifyToken, verifyAdmin, async (req, res) => {
             try {
                 const users = await userCollection.find().toArray();
                 res.send(users);
@@ -262,7 +297,7 @@ async function run() {
             }
         });
 
-        app.patch('/admin/users/role', async (req, res) => {
+        app.patch('/admin/users/role', verifyToken, verifyAdmin, async (req, res) => {
             try {
                 const { email, currentRole, newRole } = req.body;
 
@@ -308,7 +343,7 @@ async function run() {
             }
         });
 
-        app.delete('/admin/users/:email', async (req, res) => {
+        app.delete('/admin/users/:email', verifyToken, verifyAdmin, async (req, res) => {
             try {
                 const email = req.params.email;
 
@@ -322,7 +357,7 @@ async function run() {
             }
         });
 
-        app.get('/admin/transactions', async (req, res) => {
+        app.get('/admin/transactions', verifyToken, verifyAdmin, async (req, res) => {
             try {
                 const transactions = await paymentCollection.find().toArray();
                 res.json(transactions);
@@ -332,7 +367,7 @@ async function run() {
         });
 
         // stripe payment api
-        app.post('/payment', async (req, res) => {
+        app.post('/payment', verifyToken, async (req, res) => {
             const { lawyerEmail, userName, userEmail, fee, hiringReqId, transactionId } = req.body;
 
             // Prevent duplicate payments for the same hiring request
