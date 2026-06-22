@@ -112,21 +112,37 @@ async function run() {
 
         app.get('/lawyers', async (req, res) => {
             try {
-                const { random, limit, email } = req.query;
+                const { random, limit, email, page, search, category, status } = req.query;
                 let lawyers;
 
                 if (random === 'true') {
                     const size = limit ? parseInt(limit) : 6;
                     lawyers = await lawyerCollection.aggregate([{ $sample: { size } }]).toArray();
+                    return res.send(lawyers);
+                }
+                
+                let queryObj = {};
+                if (email) queryObj.email = email;
+                if (search) queryObj.name = { $regex: search, $options: 'i' };
+                if (category) queryObj.category = category;
+                if (status) queryObj.status = status;
+
+                if (page) {
+                    const pageNum = parseInt(page) || 1;
+                    const limitNum = parseInt(limit) || 8;
+                    const skip = (pageNum - 1) * limitNum;
+
+                    lawyers = await lawyerCollection.find(queryObj).skip(skip).limit(limitNum).toArray();
+                    const totalLawyers = await lawyerCollection.countDocuments(queryObj);
+                    const totalPages = Math.ceil(totalLawyers / limitNum);
+
+                    return res.send({ data: lawyers, totalPages, currentPage: pageNum });
                 } else {
-                    let queryObj = {};
-                    if (email) queryObj.email = email;
                     let query = lawyerCollection.find(queryObj);
                     if (limit) query = query.limit(parseInt(limit));
                     lawyers = await query.toArray();
+                    return res.send(lawyers);
                 }
-
-                res.send(lawyers);
             } catch (error) {
                 res.status(500).send({ message: "Error getting lawyers", error: error.message });
             }
@@ -290,8 +306,22 @@ async function run() {
         })
         app.get('/admin/users', verifyToken, verifyAdmin, async (req, res) => {
             try {
-                const users = await userCollection.find().toArray();
-                res.send(users);
+                const { page, limit } = req.query;
+
+                if (page) {
+                    const pageNum = parseInt(page) || 1;
+                    const limitNum = parseInt(limit) || 10;
+                    const skip = (pageNum - 1) * limitNum;
+
+                    const users = await userCollection.find().skip(skip).limit(limitNum).toArray();
+                    const totalUsers = await userCollection.countDocuments();
+                    const totalPages = Math.ceil(totalUsers / limitNum);
+
+                    return res.send({ data: users, totalPages, currentPage: pageNum });
+                } else {
+                    const users = await userCollection.find().toArray();
+                    return res.send(users);
+                }
             } catch (error) {
                 res.status(500).send({ message: "Error getting all users", error: error.message });
             }
