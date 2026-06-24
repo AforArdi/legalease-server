@@ -112,7 +112,7 @@ async function run() {
 
         app.get('/lawyers', async (req, res) => {
             try {
-                const { random, limit, email, page, search, category, status } = req.query;
+                const { random, limit, email, page, search, category, status, fee } = req.query;
                 let lawyers;
 
                 if (random === 'true') {
@@ -127,20 +127,41 @@ async function run() {
                 if (category) queryObj.category = category;
                 if (status) queryObj.status = status;
 
+                let sortObj = {};
+                if (fee) {
+                    if (fee === 'low-high') {
+                        sortObj = { fee: 1 };
+                    } else if (fee === 'high-low') {
+                        sortObj = { fee: -1 };
+                    } else if (fee === '250-max') {
+                        queryObj.fee = { $gte: 250 };
+                    } else {
+                        const [min, max] = fee.split('-');
+                        if (min && max) {
+                            queryObj.fee = { $gte: parseInt(min), $lte: parseInt(max) };
+                        }
+                    }
+                }
+
                 if (page) {
                     const pageNum = parseInt(page) || 1;
                     const limitNum = parseInt(limit) || 8;
                     const skip = (pageNum - 1) * limitNum;
 
-                    lawyers = await lawyerCollection.find(queryObj).skip(skip).limit(limitNum).toArray();
+                    let query = lawyerCollection.find(queryObj);
+                    if (Object.keys(sortObj).length > 0) query = query.sort(sortObj);
+                    lawyers = await query.skip(skip).limit(limitNum).toArray();
+                    
                     const totalLawyers = await lawyerCollection.countDocuments(queryObj);
                     const totalPages = Math.ceil(totalLawyers / limitNum);
 
                     return res.send({ data: lawyers, totalPages, currentPage: pageNum });
                 } else {
                     let query = lawyerCollection.find(queryObj);
+                    if (Object.keys(sortObj).length > 0) query = query.sort(sortObj);
                     if (limit) query = query.limit(parseInt(limit));
                     lawyers = await query.toArray();
+                    
                     return res.send(lawyers);
                 }
             } catch (error) {
