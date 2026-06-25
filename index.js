@@ -168,6 +168,30 @@ async function run() {
                 res.status(500).send({ message: "Error getting lawyers", error: error.message });
             }
         });
+
+        app.get('/lawyers/top', async (req, res) => {
+            try {
+                const topLawyersAggregation = await paymentCollection.aggregate([
+                    { $group: { _id: "$lawyerEmail", count: { $sum: 1 } } },
+                    { $sort: { count: -1 } },
+                    { $limit: 3 }
+                ]).toArray();
+
+                const topLawyerEmails = topLawyersAggregation.map(item => item._id);
+
+                const topLawyers = await lawyerCollection.find({ email: { $in: topLawyerEmails } }).toArray();
+
+                // Sort the populated lawyers to match the aggregated order
+                const sortedTopLawyers = topLawyerEmails.map(email => 
+                    topLawyers.find(lawyer => lawyer.email === email)
+                ).filter(Boolean);
+
+                res.send(sortedTopLawyers);
+            } catch (error) {
+                res.status(500).send({ message: "Error getting top lawyers", error: error.message });
+            }
+        });
+
         app.get('/lawyers/:id', async (req, res) => {
             try {
                 const id = req.params.id;
