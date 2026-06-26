@@ -3,7 +3,7 @@
   <p><strong>The robust backend API powering the LegalEase platform.</strong></p>
 
   <p>
-    <a href="https://legalease.vercel.app" target="_blank">View Live App</a>
+    <a href="https://client-legalease.vercel.app" target="_blank">View Live App</a>
     ·
     <a href="https://github.com/AforArdi/legalease-client" target="_blank">Frontend Repository</a>
   </p>
