@@ -120,7 +120,7 @@ async function run() {
                     lawyers = await lawyerCollection.aggregate([{ $sample: { size } }]).toArray();
                     return res.send(lawyers);
                 }
-                
+
                 let queryObj = {};
                 if (email) queryObj.email = email;
                 if (search) queryObj.name = { $regex: search, $options: 'i' };
@@ -151,7 +151,7 @@ async function run() {
                     let query = lawyerCollection.find(queryObj);
                     if (Object.keys(sortObj).length > 0) query = query.sort(sortObj);
                     lawyers = await query.skip(skip).limit(limitNum).toArray();
-                    
+
                     const totalLawyers = await lawyerCollection.countDocuments(queryObj);
                     const totalPages = Math.ceil(totalLawyers / limitNum);
 
@@ -161,7 +161,7 @@ async function run() {
                     if (Object.keys(sortObj).length > 0) query = query.sort(sortObj);
                     if (limit) query = query.limit(parseInt(limit));
                     lawyers = await query.toArray();
-                    
+
                     return res.send(lawyers);
                 }
             } catch (error) {
@@ -182,7 +182,7 @@ async function run() {
                 const topLawyers = await lawyerCollection.find({ email: { $in: topLawyerEmails } }).toArray();
 
                 // Sort the populated lawyers to match the aggregated order
-                const sortedTopLawyers = topLawyerEmails.map(email => 
+                const sortedTopLawyers = topLawyerEmails.map(email =>
                     topLawyers.find(lawyer => lawyer.email === email)
                 ).filter(Boolean);
 
@@ -256,8 +256,27 @@ async function run() {
         app.get('/user/hiring', verifyToken, async (req, res) => {
             try {
                 const { userEmail } = req.query;
-                const query = { userEmail };
-                const result = await hiringReqCollection.find(query).toArray();
+                const result = await hiringReqCollection.aggregate([
+                    { $match: { userEmail } },
+                    {
+                        $lookup: {
+                            from: "lawyer",
+                            localField: "lawyerEmail",
+                            foreignField: "email",
+                            as: "lawyerDetails"
+                        }
+                    },
+                    {
+                        $addFields: {
+                            lawyerId: { $arrayElemAt: ["$lawyerDetails._id", 0] }
+                        }
+                    },
+                    {
+                        $project: {
+                            lawyerDetails: 0
+                        }
+                    }
+                ]).toArray();
                 res.send(result);
             } catch (error) {
                 res.status(500).send({ message: "Error getting user hiring requests", error: error.message });
@@ -290,6 +309,18 @@ async function run() {
         // comment related api
         app.post('/user/comment', verifyToken, async (req, res) => {
             const { userEmail, lawyerEmail, lawyerName, comment, createdAt } = req.body;
+            
+            // Verify if the user has actually paid this lawyer
+            const hasPaid = await hiringReqCollection.findOne({
+                userEmail,
+                lawyerEmail,
+                status: "Paid"
+            });
+            
+            if (!hasPaid) {
+                return res.status(403).send({ message: "You can only comment on a lawyer's profile after you have hired and paid them." });
+            }
+
             const commentData = {
                 userEmail,
                 lawyerEmail,
