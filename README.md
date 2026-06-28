@@ -19,7 +19,7 @@ By interfacing directly with MongoDB and validating Better Auth JWT tokens (`jos
 
 ---
 
-## 🚀 Key Responsibilities
+## 🚀 Key Features
 
 * **Role-Based Access Control (RBAC):** Middleware checks to verify JWT payloads and strictly enforce `user`, `lawyer`, and `admin` permissions on restricted routes.
 * **Data Aggregation & Lookup:** Utilizes MongoDB aggregation pipelines (like `$lookup`) to seamlessly merge related collections (e.g., automatically attaching lawyer profile details to hiring requests).
