@@ -1,5 +1,5 @@
 <div align="center">
-  <h1>LegalEase Server</h1>
+  <h1>Legal Ease Server</h1>
   <p><strong>The robust backend API powering the LegalEase platform.</strong></p>
 
   <p>
